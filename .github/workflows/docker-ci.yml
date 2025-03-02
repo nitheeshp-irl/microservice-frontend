@@ -17,8 +17,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ vars.DOCKER_USERNAME }}/micoservice-frontend:latest
-          tags: latest
+          images: ${{ vars.DOCKER_USERNAME }}/micoservice-frontend
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
