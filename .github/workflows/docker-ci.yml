@@ -34,10 +34,10 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Build Docker image
-        run: docker build --tag ${username}/microservice-frontend:latest .
+        run: docker build --tag ${{ secrets.DOCKER_USERNAME }}/microservice-frontend:latest .
 
       - name: Run Docker container
-        run: docker run -d -p 3000:3000 --name microservice-frontend-container ${username}/microservice-frontend:latest
+        run: docker run -d -p 3000:3000 --name microservice-frontend-container ${{ secrets.DOCKER_USERNAME }}/microservice-frontend:latest
 
       - name: Wait for the container to be ready
         run: sleep 30
@@ -48,7 +48,7 @@ jobs:
 
       - name: Push Docker image to Docker Hub
         if: success()
-        run: docker push ${username}/microservice-frontend:latest
+        run: docker push ${{ secrets.DOCKER_USERNAME }}/microservice-frontend:latest
 
       - name: Clean up
         run: docker rm -f microservice-frontend-container
