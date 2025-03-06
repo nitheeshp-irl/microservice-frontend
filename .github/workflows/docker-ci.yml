@@ -20,7 +20,7 @@ jobs:
         uses: docker/setup-buildx-action@v1
 
       - name: Cache Docker layers
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: /tmp/.buildx-cache
           key: ${{ runner.os }}-buildx-${{ github.sha }}
@@ -34,10 +34,10 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Build Docker image
-        run: docker build --tag micoservice-frontend:latest .
+        run: docker build --tag ${{ secrets.DOCKER_USERNAME }}/microservice-frontend:latest .
 
       - name: Run Docker container
-        run: docker run -d -p 3000:3000 --name micoservice-frontend-container micoservice-frontend:latest
+        run: docker run -d -p 3000:3000 --name microservice-frontend-container ${{ secrets.DOCKER_USERNAME }}/microservice-frontend:latest
 
       - name: Wait for the container to be ready
         run: sleep 30
@@ -48,7 +48,7 @@ jobs:
 
       - name: Push Docker image to Docker Hub
         if: success()
-        run: docker push micoservice-frontend:latest
+        run: docker push ${{ secrets.DOCKER_USERNAME }}/microservice-frontend:latest
 
       - name: Clean up
-        run: docker rm -f micoservice-frontend-container
+        run: docker rm -f microservice-frontend-container
