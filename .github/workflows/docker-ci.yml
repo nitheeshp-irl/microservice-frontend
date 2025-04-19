@@ -11,13 +11,16 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v2
         with:
           role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
           aws-region: us-west-2
@@ -74,7 +77,6 @@ jobs:
       - name: Clean up Docker container
         run: docker rm -f microservice-frontend-container
 
-      # EKS Deployment steps
       - name: Install kubectl
         uses: azure/setup-kubectl@v3
         with:
@@ -87,10 +89,7 @@ jobs:
 
       - name: Update Kubernetes configuration
         run: |
-          mkdir -p $HOME/.kube
-          echo "$KUBE_CONFIG_DATA" | base64 -d > $HOME/.kube/config
           aws eks update-kubeconfig --name eks-poc --region us-west-2
-      
 
       - name: Update Kustomize image
         working-directory: ./k8/overlays/development
@@ -100,7 +99,7 @@ jobs:
       - name: Deploy to EKS
         working-directory: ./k8
         run: |
-          kustomize build overlays/development | kubectl apply -f - --validate=false
+          kustomize build overlays/development | kubectl apply -f -
 
       - name: Verify deployment
         run: |
