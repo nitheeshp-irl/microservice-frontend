@@ -97,9 +97,9 @@ jobs:
           kustomize edit set image frontend=$ECR_REGISTRY/$ECR_REPOSITORY:${{ github.sha }}
         
       - name: Deploy RBAC
-        working-directory: ./k8/base
+        working-directory: ./k8
         run: |
-          kubectl apply -f rbac.yaml
+          kubectl apply -f base/rbac.yaml
 
       - name: Deploy to EKS
         working-directory: ./k8
