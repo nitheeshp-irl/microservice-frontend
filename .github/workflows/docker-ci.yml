@@ -103,4 +103,4 @@ jobs:
 
       - name: Verify deployment
         run: |
-          kubectl rollout status deployment/frontend-deployment -n default
+          kubectl rollout status deployment/frontend -n default
