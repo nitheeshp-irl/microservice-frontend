@@ -91,13 +91,13 @@ jobs:
           aws eks update-kubeconfig --name eks-poc --region us-west-2
 
       - name: Update Kustomize image
-        working-directory: ./k8s
+        working-directory: /k8s
         run: |
           cd overlays/development
           kustomize edit set image frontend=$ECR_REGISTRY/$ECR_REPOSITORY:${{ github.sha }}
 
       - name: Deploy to EKS
-        working-directory: ./k8s
+        working-directory: /k8s
         run: |
           kustomize build overlays/development | kubectl apply -f -
 
