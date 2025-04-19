@@ -1,4 +1,4 @@
-name: Docker CI
+name: Docker CI and EKS Deploy
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
       - main
 
 jobs:
-  build-and-test:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -72,5 +72,35 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
-      - name: Clean up
+      - name: Clean up Docker container
         run: docker rm -f microservice-frontend-container
+
+      # EKS Deployment steps
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Install Kustomize
+        run: |
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+
+      - name: Update Kubernetes configuration
+        run: |
+          aws eks update-kubeconfig --name eks-poc --region us-west-2
+
+      - name: Update Kustomize image
+        working-directory: ./k8s
+        run: |
+          cd overlays/development
+          kustomize edit set image frontend=$ECR_REGISTRY/$ECR_REPOSITORY:${{ github.sha }}
+
+      - name: Deploy to EKS
+        working-directory: ./k8s
+        run: |
+          kustomize build overlays/development | kubectl apply -f -
+
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment/frontend-deployment -n default
