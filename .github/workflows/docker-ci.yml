@@ -89,6 +89,13 @@ jobs:
       - name: Update Kubernetes configuration
         run: |
           aws eks update-kubeconfig --name eks-poc --region us-west-2
+      
+      - name: Install AWS IAM Authenticator
+        run: |
+          curl -o aws-iam-authenticator https://s3.us-west-2.amazonaws.com/amazon-eks/2019-11-01/bin/linux/amd64/aws-iam-authenticator
+          chmod +x ./aws-iam-authenticator
+          sudo mv aws-iam-authenticator /usr/local/bin/
+          aws-iam-authenticator version
 
       - name: Update Kustomize image
         working-directory: ./k8/overlays/development
@@ -98,7 +105,7 @@ jobs:
       - name: Deploy to EKS
         working-directory: ./k8
         run: |
-          kustomize build overlays/development | kubectl apply -f -
+          kustomize build overlays/development | kubectl apply -f - --validate=false
 
       - name: Verify deployment
         run: |
