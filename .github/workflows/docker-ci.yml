@@ -99,7 +99,7 @@ jobs:
       - name: Deploy RBAC
         working-directory: ./k8
         run: |
-          kubectl apply -f base/rbac.yaml
+          kubectl apply -f base/rbac.yml
 
       - name: Deploy to EKS
         working-directory: ./k8
