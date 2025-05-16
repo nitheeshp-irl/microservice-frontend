@@ -2,14 +2,17 @@ name: Docker Build and EKS Deploy
 
 on:
   push:
-    branches: [main]
+    tags:
+      - 'v*.*.*'
+    branches:
+      - main
   pull_request:
-    branches: [main]
+    branches:
+      - main
 
 env:
   ECR_REGISTRY: 194722430197.dkr.ecr.us-west-2.amazonaws.com
   ECR_REPOSITORY: training/craftista_frontend
-  IMAGE_TAG: ${{ github.sha }}
   AWS_REGION: us-west-2
 
 jobs:
@@ -46,17 +49,21 @@ jobs:
             buildx-${{ runner.os }}-
 
       - name: Build Docker image with BuildKit cache
+        env:
+          IMAGE_TAG: ${{ github.ref_name }}
         run: |
           docker buildx build \
             --cache-from type=local,src=/tmp/.buildx-cache \
             --cache-to type=local,dest=/tmp/.buildx-cache \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:${IMAGE_TAG#v} \
             -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
             --load .
-      
+
       - name: Run container for testing
+        env:
+          IMAGE_TAG: ${{ github.ref_name }}
         run: |
-          docker run -d -p 3000:3000 --name test-container $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker run -d -p 3000:3000 --name test-container $ECR_REGISTRY/$ECR_REPOSITORY:${IMAGE_TAG#v}
           for i in {1..10}; do
             if curl -s http://localhost:3000; then
               echo "Container is up!"
@@ -70,8 +77,10 @@ jobs:
 
       - name: Push Docker image to Amazon ECR
         if: success()
+        env:
+          IMAGE_TAG: ${{ github.ref_name }}
         run: |
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:${IMAGE_TAG#v}
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
       - name: Clean up test container
