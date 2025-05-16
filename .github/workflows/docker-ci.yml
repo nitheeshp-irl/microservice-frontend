@@ -1,78 +1,72 @@
-name: Docker CI and EKS Deploy
+name: Docker Build and EKS Deployment
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
+
+env:
+  ECR_REGISTRY: 194722430197.dkr.ecr.us-west-2.amazonaws.com
+  ECR_REPOSITORY: training/craftista_frontend
+  IMAGE_TAG: ${{ github.sha }}
+  AWS_REGION: us-west-2
 
 jobs:
-  build-and-deploy:
+  build-deploy:
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: read
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
-          aws-region: us-west-2
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:master
 
       - name: Cache Docker layers
         uses: actions/cache@v3
         with:
           path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          key: buildx-${{ runner.os }}-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-buildx-
+            buildx-${{ runner.os }}-
 
-      - name: Build Docker image
-        env:
-          ECR_REGISTRY: 194722430197.dkr.ecr.us-west-2.amazonaws.com
-          ECR_REPOSITORY: training/craftista_frontend
-          IMAGE_TAG: ${{ github.ref_name }}
+      - name: Build and tag Docker image
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker build \
+            --cache-from type=local,src=/tmp/.buildx-cache \
+            --cache-to type=local,dest=/tmp/.buildx-cache \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
           docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
-      - name: Run Docker container for testing
-        env:
-          ECR_REGISTRY: 194722430197.dkr.ecr.us-west-2.amazonaws.com
-          ECR_REPOSITORY: training/craftista_frontend
-          IMAGE_TAG: ${{ github.sha }}
+      - name: Run container tests
         run: |
-          docker run -d -p 3000:3000 --name microservice-frontend-container $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker run -d -p 3000:3000 --name test-container $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          for i in {1..10}; do
+            if curl -s http://localhost:3000; then
+              exit 0
+            fi
+            sleep 5
+          done
+          exit 1
 
-      - name: Wait for the container to be ready
-        run: sleep 30
-
-      - name: Test Docker container
-        run: |
-          curl -f http://localhost:3000 || exit 1
-
-      - name: Push Docker image to Amazon ECR
+      - name: Push to ECR
         if: success()
-        env:
-          ECR_REGISTRY: 194722430197.dkr.ecr.us-west-2.amazonaws.com
-          ECR_REPOSITORY: training/craftista_frontend
-          IMAGE_TAG: ${{ github.sha }}
         run: |
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
-
-      - name: Clean up Docker container
-        run: docker rm -f microservice-frontend-container
