@@ -1,4 +1,4 @@
-name: Docker Build and EKS Deploy
+name: Docker Build and Versioned Release
 
 on:
   push:
@@ -12,7 +12,7 @@ on:
 
 env:
   ECR_REGISTRY: 194722430197.dkr.ecr.us-west-2.amazonaws.com
-  ECR_REPOSITORY: training/craftista_frontend
+  ECR_REPOSITORY: training/craftista_frontend_dev 
   AWS_REGION: us-west-2
 
 jobs:
@@ -48,41 +48,41 @@ jobs:
           restore-keys: |
             buildx-${{ runner.os }}-
 
-      - name: Build Docker image with BuildKit cache
+      - name: Build and tag Docker image
         env:
-          IMAGE_TAG: ${{ github.ref_name }}
+          SEMVER: ${GITHUB_REF#refs/tags/v}
         run: |
           docker buildx build \
             --cache-from type=local,src=/tmp/.buildx-cache \
             --cache-to type=local,dest=/tmp/.buildx-cache \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:${IMAGE_TAG#v} \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$SEMVER \
             -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
             --load .
 
-      - name: Run container for testing
+      - name: Run container tests
         env:
-          IMAGE_TAG: ${{ github.ref_name }}
+          SEMVER: ${GITHUB_REF#refs/tags/v}
         run: |
-          docker run -d -p 3000:3000 --name test-container $ECR_REGISTRY/$ECR_REPOSITORY:${IMAGE_TAG#v}
+          docker run -d -p 3000:3000 --name test-container $ECR_REGISTRY/$ECR_REPOSITORY:$SEMVER
           for i in {1..10}; do
             if curl -s http://localhost:3000; then
-              echo "Container is up!"
+              echo "Container ready!"
               exit 0
             fi
             sleep 5
           done
-          echo "Container did not become ready in time."
+          echo "Container failed to start"
           docker logs test-container
           exit 1
 
-      - name: Push Docker image to Amazon ECR
-        if: success()
+      - name: Push versioned image
+        if: success() && startsWith(github.ref, 'refs/tags/')
         env:
-          IMAGE_TAG: ${{ github.ref_name }}
+          SEMVER: ${GITHUB_REF#refs/tags/v}
         run: |
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:${IMAGE_TAG#v}
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$SEMVER
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
-      - name: Clean up test container
+      - name: Cleanup
         if: always()
         run: docker rm -f test-container || true
