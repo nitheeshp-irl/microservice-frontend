@@ -3,7 +3,7 @@ name: Docker Build and Versioned Release
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - 'v*.*.*'  # Triggers on semantic version tags (v1.0.0, v1.2.3, etc.)
     branches:
       - main
   pull_request:
@@ -12,7 +12,7 @@ on:
 
 env:
   ECR_REGISTRY: 194722430197.dkr.ecr.us-west-2.amazonaws.com
-  ECR_REPOSITORY: training/craftista_frontend_dev 
+  ECR_REPOSITORY: training/craftista_frontend_dev  # Changed to _dev
   AWS_REGION: us-west-2
 
 jobs:
@@ -50,7 +50,7 @@ jobs:
 
       - name: Build and tag Docker image
         env:
-          SEMVER: ${GITHUB_REF#refs/tags/v}
+          SEMVER: ${GITHUB_REF#refs/tags/v}  # Strips 'v' from tag (v1.0.0 → 1.0.0)
         run: |
           docker buildx build \
             --cache-from type=local,src=/tmp/.buildx-cache \
