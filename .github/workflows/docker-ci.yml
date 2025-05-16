@@ -1,9 +1,9 @@
-name: Docker Build and Versioned Release
+name: Docker Build and Semantic Versioned Release
 
 on:
   push:
     tags:
-      - 'v*.*.*'  # Triggers on semantic version tags (v1.0.0, v1.2.3, etc.)
+      - 'v*.*.*'
     branches:
       - main
   pull_request:
@@ -12,7 +12,7 @@ on:
 
 env:
   ECR_REGISTRY: 194722430197.dkr.ecr.us-west-2.amazonaws.com
-  ECR_REPOSITORY: training/craftista_frontend_dev  # Changed to _dev
+  ECR_REPOSITORY: training/craftista_frontend_dev
   AWS_REGION: us-west-2
 
 jobs:
@@ -48,10 +48,16 @@ jobs:
           restore-keys: |
             buildx-${{ runner.os }}-
 
-      - name: Build and tag Docker image
-        env:
-          SEMVER: ${GITHUB_REF#refs/tags/v}  # Strips 'v' from tag (v1.0.0 → 1.0.0)
+      - name: Extract semantic version
+        id: semver
         run: |
+          SEMVER=${GITHUB_REF#refs/tags/v}
+          echo "SEMVER=$SEMVER" >> $GITHUB_OUTPUT
+
+      - name: Build and tag Docker image
+        run: |
+          SEMVER=${{ steps.semver.outputs.SEMVER }}
+          echo "Building Docker image with tag: $SEMVER"
           docker buildx build \
             --cache-from type=local,src=/tmp/.buildx-cache \
             --cache-to type=local,dest=/tmp/.buildx-cache \
@@ -60,9 +66,8 @@ jobs:
             --load .
 
       - name: Run container tests
-        env:
-          SEMVER: ${GITHUB_REF#refs/tags/v}
         run: |
+          SEMVER=${{ steps.semver.outputs.SEMVER }}
           docker run -d -p 3000:3000 --name test-container $ECR_REGISTRY/$ECR_REPOSITORY:$SEMVER
           for i in {1..10}; do
             if curl -s http://localhost:3000; then
@@ -75,11 +80,10 @@ jobs:
           docker logs test-container
           exit 1
 
-      - name: Push versioned image
+      - name: Push Docker images to Amazon ECR
         if: success() && startsWith(github.ref, 'refs/tags/')
-        env:
-          SEMVER: ${GITHUB_REF#refs/tags/v}
         run: |
+          SEMVER=${{ steps.semver.outputs.SEMVER }}
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$SEMVER
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
