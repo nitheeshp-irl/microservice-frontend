@@ -102,14 +102,22 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Bump to next snapshot version
+      - name: Push bumped version
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
           VERSION=$(node -p "require('./package.json').version.replace('-snapshot', '')")
           IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
           NEXT_PATCH=$((PATCH + 1))
           NEXT_VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}-snapshot"
+          
           jq ".version = \"$NEXT_VERSION\"" package.json > tmp.json && mv tmp.json package.json
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git commit -am "chore: bump version to ${NEXT_VERSION}"
+      
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          
+          git add package.json
+          git commit -m "chore: bump version to ${NEXT_VERSION}"
+          
+          git remote set-url origin https://x-access-token:${GH_PAT}@github.com/${{ github.repository }}.git
           git push origin main
