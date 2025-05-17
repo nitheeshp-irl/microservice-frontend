@@ -7,7 +7,6 @@ on:
 
 env:
   AWS_REGION: us-west-2
-  ECR_REGISTRY: 194722430197.dkr.ecr.us-west-2.amazonaws.com
   ECR_REPOSITORY: training/craftista_frontend
 
 jobs:
@@ -21,16 +20,22 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
-          aws-region:     ${{ env.AWS_REGION }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Log in to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set ECR Registry
+        run: |
+          echo "ECR_REGISTRY=${{ steps.login-ecr.outputs.registry }}" >> $GITHUB_ENV
 
       - name: Determine Next Semantic Version
         id: get_version
@@ -53,10 +58,35 @@ jobs:
           echo "NEXT_VERSION=$NEXT_VERSION" >> $GITHUB_ENV
           echo "Next version: $NEXT_VERSION"
 
-      - name: Build Docker Image
+      - name: Set Docker Tags
+        id: docker_tags
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$NEXT_VERSION .
+          # Set multiple tags for better traceability
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          BRANCH_NAME=${GITHUB_REF#refs/heads/}
+          BUILD_DATE=$(date -u +'%Y%m%d')
+          
+          # Define all tags
+          echo "TAGS=$NEXT_VERSION,latest,$SHORT_SHA,$BRANCH_NAME-$SHORT_SHA,$BRANCH_NAME-latest,$BUILD_DATE" >> $GITHUB_ENV
+          echo "Using tags: $NEXT_VERSION, latest, $SHORT_SHA, $BRANCH_NAME-$SHORT_SHA, $BRANCH_NAME-latest, $BUILD_DATE"
 
-      - name: Push Docker Image to ECR
+      - name: Build and Tag Docker Image
         run: |
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$NEXT_VERSION
+          # Build the image once
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$NEXT_VERSION .
+          
+          # Apply all additional tags
+          for TAG in $(echo $TAGS | tr ',' ' '); do
+            if [ "$TAG" != "$NEXT_VERSION" ]; then
+              echo "Tagging with: $TAG"
+              docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$NEXT_VERSION $ECR_REGISTRY/$ECR_REPOSITORY:$TAG
+            fi
+          done
+
+      - name: Push Docker Images to ECR
+        run: |
+          # Push all tagged images
+          for TAG in $(echo $TAGS | tr ',' ' '); do
+            echo "Pushing tag: $TAG"
+            docker push $ECR_REGISTRY/$ECR_REPOSITORY:$TAG
+          done
