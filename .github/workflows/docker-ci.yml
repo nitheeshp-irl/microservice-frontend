@@ -9,7 +9,7 @@ on:
 
 env:
   ECR_REGISTRY: 194722430197.dkr.ecr.us-west-2.amazonaws.com
-  ECR_REPOSITORY: training/craftista_frontend_dev
+  ECR_REPOSITORY: training/craftista_frontend
   AWS_REGION: us-west-2
 
 jobs:
