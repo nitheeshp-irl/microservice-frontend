@@ -17,11 +17,5 @@
     "chai-http": "^4.3.0",
     "mocha": "^10.2.0",
     "nock": "^13.3.4"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/nitheeshp-irl/microservice-frontend"
-  },
-  "author": "NITHEESHA POOOJARY",
-  "license": "MIT"
+  }
 }
