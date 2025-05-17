@@ -100,7 +100,7 @@ jobs:
 
           git add package.json
           git commit -m "chore: bump version to $NEXT_VERSION" || echo "No changes to commit"
-          git remote set-url origin https://x-access-token:${GH_PAT}@github.com/${{ github.repository }}.git
+          git remote set-url origin https://x-access-token:${GH_PAT}@github.com/nitheeshp-irl/microservice-frontend.git
           git push origin main
 
       - name: Tag GitHub with v${{ env.VERSION }}
