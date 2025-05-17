@@ -1,119 +1,62 @@
-name: Docker Build & Semantic-Versioned Release to ECR
+name: Build and Push to ECR
 
 on:
   push:
-    branches: [ main ]
-    tags:     [ 'v*.*.*' ]
+    branches:
+      - main
 
 env:
+  AWS_REGION: us-west-2
   ECR_REGISTRY: 194722430197.dkr.ecr.us-west-2.amazonaws.com
   ECR_REPOSITORY: training/craftista_frontend
-  AWS_REGION: us-west-2
 
 jobs:
-  build-and-deploy:
+  build-and-push:
     runs-on: ubuntu-latest
+
     permissions:
-      id-token: write       # OIDC → AWS
-      contents: write       # allow git pushes
+      id-token: write
+      contents: write
 
     steps:
-    # ──────────────────────────────────────────────────────────────────────────
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-    # ───────────── AWS / ECR LOGIN ───────────────────────────────────────────
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
-        aws-region:     ${{ env.AWS_REGION }}
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region:     ${{ env.AWS_REGION }}
 
-    - name: Login to Amazon ECR
-      uses: aws-actions/amazon-ecr-login@v2
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
 
-    # ───────────── DOCKER BUILDX & CACHE ─────────────────────────────────────
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      - name: Determine Next Semantic Version
+        id: get_version
+        run: |
+          IMAGE_TAGS=$(aws ecr describe-images \
+            --repository-name $ECR_REPOSITORY \
+            --region $AWS_REGION \
+            --query 'imageDetails[].imageTags[]' \
+            --output text | tr '\t' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true)
 
-    - name: Cache Docker layers
-      uses: actions/cache@v3
-      with:
-        path: /tmp/.buildx-cache
-        key:  buildx-${{ runner.os }}-${{ github.sha }}
-        restore-keys: |
-          buildx-${{ runner.os }}-
-
-    # ───────────── VERSION HANDLING ──────────────────────────────────────────
-    - name: Extract & bump version
-      id: bump
-      run: |
-        VERSION=$(node -p "require('./package.json').version.replace('-snapshot', '')")
-        echo "VERSION=$VERSION"              | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-
-        IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
-        NEXT_PATCH=$((PATCH + 1))
-        NEXT_VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}-snapshot"
-        echo "NEXT_VERSION=$NEXT_VERSION"    | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-
-        # update package.json to next snapshot (but commit later)
-        jq ".version = \"${NEXT_VERSION}\"" package.json > tmp.json && mv tmp.json package.json
-
-    # ───────────── BUILD IMAGE ───────────────────────────────────────────────
-    - name: Build & tag Docker image
-      run: |
-        TAG=${{ steps.bump.outputs.VERSION }}
-        echo "Building Docker image with tag $TAG"
-        docker buildx build \
-          --cache-from type=local,src=/tmp/.buildx-cache \
-          --cache-to   type=local,dest=/tmp/.buildx-cache \
-          -t $ECR_REGISTRY/$ECR_REPOSITORY:$TAG \
-          -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
-          --load .
-
-    # ───────────── CONTAINER TESTS ───────────────────────────────────────────
-    - name: Run container smoke test
-      run: |
-        TAG=${{ steps.bump.outputs.VERSION }}
-        docker run -d -p 3000:3000 --name test-container $ECR_REGISTRY/$ECR_REPOSITORY:$TAG
-        for i in {1..10}; do
-          if curl -s http://localhost:3000; then
-            echo "Container ready!"
-            exit 0
+          if [[ -z "$IMAGE_TAGS" ]]; then
+            NEXT_VERSION="1.0.0"
+          else
+            LAST_VERSION=$(echo "$IMAGE_TAGS" | sort -V | tail -n 1)
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$LAST_VERSION"
+            PATCH=$((PATCH + 1))
+            NEXT_VERSION="$MAJOR.$MINOR.$PATCH"
           fi
-          sleep 5
-        done
-        echo "Container failed to start"
-        docker logs test-container
-        exit 1
 
-    # ───────────── PUSH IMAGES ───────────────────────────────────────────────
-    - name: Push Docker images to ECR
-      run: |
-        TAG=${{ steps.bump.outputs.VERSION }}
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$TAG
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          echo "NEXT_VERSION=$NEXT_VERSION" >> $GITHUB_ENV
+          echo "Next version: $NEXT_VERSION"
 
-    # ───────────── COMMIT NEXT SNAPSHOT VERSION ──────────────────────────────
-    - name: Commit bumped version to package.json
-      run: |
-        git config user.name  "GitHub Actions"
-        git config user.email "actions@github.com"
+      - name: Build Docker Image
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$NEXT_VERSION .
 
-        git add package.json
-        git commit -m "chore: bump version to ${{ env.NEXT_VERSION }}" || echo "nothing to commit"
-
-        git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}.git
-        git push origin main
-
-    # ───────────── CREATE vX.Y.Z TAG ─────────────────────────────────────────
-    - name: Tag GitHub with v${{ steps.bump.outputs.VERSION }}
-      run: |
-        git tag "v${{ steps.bump.outputs.VERSION }}"
-        git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}.git
-        git push origin "v${{ env.VERSION }}"
-
-    # ───────────── CLEANUP ───────────────────────────────────────────────────
-    - name: Cleanup
-      if: always()
-      run: docker rm -f test-container || true
+      - name: Push Docker Image to ECR
+        run: |
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$NEXT_VERSION
