@@ -33,15 +33,20 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Get Bump Type from Commit Message
+      - name: Determine Bump Type from Commit Message
         id: bump_type
         run: |
           COMMIT_MSG=$(git log -1 --pretty=%B)
-          if echo "$COMMIT_MSG" | grep -iq "BUMP: major"; then
+          echo "Commit message: $COMMIT_MSG"
+
+          if echo "$COMMIT_MSG" | grep -qE "BREAKING CHANGE|!:"; then
             echo "BUMP=major" >> $GITHUB_ENV
-          elif echo "$COMMIT_MSG" | grep -iq "BUMP: minor"; then
+          elif echo "$COMMIT_MSG" | grep -iq "^feat:"; then
             echo "BUMP=minor" >> $GITHUB_ENV
+          elif echo "$COMMIT_MSG" | grep -iq "^fix:"; then
+            echo "BUMP=patch" >> $GITHUB_ENV
           else
+            echo "No matching pattern, defaulting to patch."
             echo "BUMP=patch" >> $GITHUB_ENV
           fi
 
