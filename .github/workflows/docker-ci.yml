@@ -7,6 +7,7 @@ on:
 
 env:
   AWS_REGION: us-west-2
+  ECR_REGISTRY: 194722430197.dkr.ecr.us-west-2.amazonaws.com
   ECR_REPOSITORY: training/craftista_frontend
 
 jobs:
@@ -20,22 +21,29 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Log in to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Set ECR Registry
+      - name: Get Bump Type
+        id: bump_type
         run: |
-          echo "ECR_REGISTRY=${{ steps.login-ecr.outputs.registry }}" >> $GITHUB_ENV
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          if echo "$COMMIT_MSG" | grep -iq "BUMP: major"; then
+            echo "BUMP=major" >> $GITHUB_ENV
+          elif echo "$COMMIT_MSG" | grep -iq "BUMP: minor"; then
+            echo "BUMP=minor" >> $GITHUB_ENV
+          else
+            echo "BUMP=patch" >> $GITHUB_ENV
+          fi
 
       - name: Determine Next Semantic Version
         id: get_version
@@ -51,42 +59,41 @@ jobs:
           else
             LAST_VERSION=$(echo "$IMAGE_TAGS" | sort -V | tail -n 1)
             IFS='.' read -r MAJOR MINOR PATCH <<< "$LAST_VERSION"
-            PATCH=$((PATCH + 1))
+
+            case "$BUMP" in
+              major)
+                MAJOR=$((MAJOR + 1))
+                MINOR=0
+                PATCH=0
+                ;;
+              minor)
+                MINOR=$((MINOR + 1))
+                PATCH=0
+                ;;
+              patch)
+                PATCH=$((PATCH + 1))
+                ;;
+            esac
+
             NEXT_VERSION="$MAJOR.$MINOR.$PATCH"
           fi
 
           echo "NEXT_VERSION=$NEXT_VERSION" >> $GITHUB_ENV
           echo "Next version: $NEXT_VERSION"
 
-      - name: Set Docker Tags
-        id: docker_tags
+      - name: Build Docker Image
         run: |
-          # Set multiple tags for better traceability
-          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
-          BRANCH_NAME=${GITHUB_REF#refs/heads/}
-          BUILD_DATE=$(date -u +'%Y%m%d')
-          
-          # Define all tags
-          echo "TAGS=$NEXT_VERSION,latest,$SHORT_SHA,$BRANCH_NAME-$SHORT_SHA,$BRANCH_NAME-latest,$BUILD_DATE" >> $GITHUB_ENV
-          echo "Using tags: $NEXT_VERSION, latest, $SHORT_SHA, $BRANCH_NAME-$SHORT_SHA, $BRANCH_NAME-latest, $BUILD_DATE"
-
-      - name: Build and Tag Docker Image
-        run: |
-          # Build the image once
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$NEXT_VERSION .
-          
-          # Apply all additional tags
-          for TAG in $(echo $TAGS | tr ',' ' '); do
-            if [ "$TAG" != "$NEXT_VERSION" ]; then
-              echo "Tagging with: $TAG"
-              docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$NEXT_VERSION $ECR_REGISTRY/$ECR_REPOSITORY:$TAG
-            fi
-          done
 
-      - name: Push Docker Images to ECR
+      - name: Push Docker Image to ECR
         run: |
-          # Push all tagged images
-          for TAG in $(echo $TAGS | tr ',' ' '); do
-            echo "Pushing tag: $TAG"
-            docker push $ECR_REGISTRY/$ECR_REPOSITORY:$TAG
-          done
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$NEXT_VERSION
+
+      - name: Tag Git Repo with Version
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git tag -a "v$NEXT_VERSION" -m "Release v$NEXT_VERSION"
+          git push origin "v$NEXT_VERSION"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
