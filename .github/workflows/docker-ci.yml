@@ -33,7 +33,7 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Get Bump Type
+      - name: Get Bump Type from Commit Message
         id: bump_type
         run: |
           COMMIT_MSG=$(git log -1 --pretty=%B)
@@ -89,11 +89,16 @@ jobs:
         run: |
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$NEXT_VERSION
 
-      - name: Tag Git Repo with Version
+      - name: Tag Git Repo with Version (if not exists)
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          git tag -a "v$NEXT_VERSION" -m "Release v$NEXT_VERSION"
-          git push origin "v$NEXT_VERSION"
+
+          if git ls-remote --tags origin | grep -q "refs/tags/v$NEXT_VERSION$"; then
+            echo "Tag v$NEXT_VERSION already exists. Skipping tag push."
+          else
+            git tag -a "v$NEXT_VERSION" -m "Release v$NEXT_VERSION"
+            git push origin "v$NEXT_VERSION"
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
